@@ -14,7 +14,11 @@ function x = polar_encode_gen(info_bits)
     % Step 2: Identify parameters from info_bits
     % -------------------------------
     K = length(info_bits);
-    N = 2^nextpow2(K);   % smallest power of 2 >= K
+    if bitand(K, K - 1) == 0
+        N = 2 * K;   % if K is power of 2, double it
+    else
+        N = 2^nextpow2(K);
+    end
     n = log2(N);
     Q1 = Q(Q <= N);      % reliability sequence for this N
 
@@ -47,3 +51,4 @@ msg = [1 0 1 1 0 1];    % you only give info bits
 x = polar_encode_gen(msg);
 disp('Encoded codeword:');
 disp(x);
+
