@@ -1,0 +1,70 @@
+function x = polar_encode_butterfly_bitrev_no_builtin(info_bits)
+% POLAR_ENCODE_BUTTERFLY_BITREV_NO_BUILTIN
+% Manual bit-reversal, then butterfly encoding (no bitrevorder).
+% Input:
+%   info_bits : 1 x K row vector
+% Output:
+%   x         : 1 x N encoded codeword
+
+    % ---------- reliability sequence ----------
+    Q = 1:32;
+
+    % ---------- params ----------
+    if ~isrow(info_bits), info_bits = info_bits(:).'; end
+    K = length(info_bits);
+
+    if bitand(K, K-1) == 0
+        N = 2 * K;
+    else
+        N = 2^nextpow2(K);
+    end
+    n = log2(N);
+
+    Q1 = Q(Q <= N);
+
+    % ---------- construct u (natural order) ----------
+    u = zeros(1, N);
+    info_pos = Q1(N - K + 1 : end);
+    u(info_pos) = info_bits;
+
+    % ---------- manual bit-reversal index computation ----------
+    idx = zeros(1, N);
+    for k = 0 : N-1
+        rev = 0;
+        for b = 1 : n
+            rev = rev * 2 + bitget(k, b);
+        end
+        idx(k+1) = rev + 1;
+    end
+
+    % ---------- apply permutation uB = u * B ----------
+    uB = zeros(1, N);
+    for orig = 1:N
+        newpos = idx(orig);
+        uB(newpos) = u(orig);
+    end
+
+    % (optional) display
+    fprintf('u (natural):\n'); disp(u);
+    fprintf('u after manual bit-reversal (uB):\n'); disp(uB);
+
+    % ---------- butterfly encoding on uB ----------
+    m = 1;
+    for stage = 1:n
+        for i = 1 : 2*m : N
+            a = uB(i : i + m - 1);
+            b = uB(i + m : i + 2*m - 1);
+            uB(i : i + 2*m - 1) = [mod(a + b, 2), b];
+        end
+        % optional debug:
+        % fprintf('After stage %d:\n', stage); disp(uB);
+        m = m * 2;
+    end
+
+    x = uB;
+end
+
+
+msg = [1 0 1 1 0 1];   % K=6
+x = polar_encode_butterfly_bitrev_no_builtin(msg);
+disp(x);
