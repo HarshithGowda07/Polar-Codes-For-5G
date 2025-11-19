@@ -1,0 +1,64 @@
+function x = polar_encode_matrix_bitrev_no_builtin(info_bits)
+% POLAR_ENCODE_MATRIX_BITREV_NO_BUILTIN
+% Uses manual bit-reversal (no bitrevorder) and generator-matrix encoding.
+% Input:
+%   info_bits : 1 x K row vector
+% Output:
+%   x         : 1 x N encoded codeword (row vector)
+
+    % ---------- reliability sequence (example for N<=32) ----------
+    Q = 1:32;
+
+    % ---------- parameters ----------
+    if ~isrow(info_bits), info_bits = info_bits(:).'; end
+    K = length(info_bits);
+
+    % choose N such that N > K (if K power of 2, double it)
+    if bitand(K, K-1) == 0
+        N = 2 * K;
+    else
+        N = 2^nextpow2(K);
+    end
+    n = log2(N);
+
+    Q1 = Q(Q <= N);
+
+    % ---------- construct u (natural order) ----------
+    u = zeros(1, N);
+    info_pos = Q1(N - K + 1 : end);
+    u(info_pos) = info_bits;
+
+    % ---------- manual bit-reversal index computation ----------
+    idx = zeros(1, N);     % idx(orig) = new position (1-based)
+    for k = 0 : N-1
+        rev = 0;
+        for b = 1 : n
+            rev = rev * 2 + bitget(k, b); % bitget LSB=1
+        end
+        idx(k+1) = rev + 1; % MATLAB 1-based
+    end
+
+    % ---------- apply permutation uB = u * B  (without building B) ----------
+    uB = zeros(1, N);
+    for orig = 1:N
+        newpos = idx(orig);
+        uB(newpos) = u(orig);
+    end
+
+    % ---------- build G = F^{⊗n} manually (no kron) ----------
+    F = [1 0; 1 1];
+    G = 1;
+    for stage = 1:n
+        [r, c] = size(G);
+        Z = zeros(r, c);
+        G = [G, Z; G, G];
+    end
+
+    % ---------- encode ----------
+    x = mod(uB * G, 2);
+
+end
+
+msg = [1 0 1 1 0 1];   % K=6
+x = polar_encode_matrix_bitrev_no_builtin(msg);
+disp(x);
