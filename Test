@@ -1,0 +1,47 @@
+clc; clear;
+
+%% ---------- Message and basic params ----------
+msg = [1 0 1 1 0 1];   % K = 6
+K   = length(msg);
+
+if bitand(K, K-1) == 0
+    N = 2 * K;
+else
+    N = 2^nextpow2(K);
+end
+
+%% ---------- Encode ----------
+x = polar_encode_butterfly_bitrev_no_builtin(msg);
+
+%% ---------- Channel: BPSK + AWGN (or noiseless) ----------
+EbNodb = 4;                    % SNR per bit in dB
+Rate   = K / N;
+EbNo   = 10^(EbNodb/10);
+sigma  = sqrt(1 / (2 * Rate * EbNo));
+
+s = 1 - 2 * x;                 % BPSK
+
+% --- noiseless test ---
+r = s;
+
+% If you want to add noise later, use:
+% r = s + sigma * randn(1, N);
+
+% LLRs for each transmitted bit x
+Lx = 2 * r / (sigma^2);        % scaling doesn't affect sign
+
+%% ---------- Decode ----------
+[u_hat, msg_hat] = polar_sc_decode_butterfly_bitrev_no_builtin(Lx, K);
+
+%% ---------- Display results ----------
+disp('Original message bits (K bits):');
+disp(msg);
+
+disp('Encoded polar codeword x (N bits, bit-reversed):');
+disp(x);
+
+disp('Decoded full u_hat (N bits, natural order):');
+disp(u_hat);
+
+disp('Decoded message bits (K bits):');
+disp(msg_hat);
