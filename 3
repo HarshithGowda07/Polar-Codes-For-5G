@@ -1,0 +1,63 @@
+function [u_hat, msg_hat] = polar_sc_decode_x_then_u(Lx, Q, K)
+% SC on x_nat domain, then inverse butterfly to get u
+
+    N = length(Q);
+    n = log2(N);
+
+    info_pos = Q(N-K+1 : end);
+
+    %% ----------- Undo bit reversal (same idx as encoder) ----------
+    idx = zeros(1,N);
+    for k = 0:N-1
+        rev = 0;
+        for b=1:n
+            rev = rev*2 + bitget(k,b);
+        end
+        idx(k+1) = rev + 1;
+    end
+
+    L_nat = Lx(idx);
+
+    %% ----------- SC decode x_nat -----------
+    x_hat_nat = sc_node(L_nat);
+
+    %% ----------- Inverse butterfly: x_hat_nat -> u_hat -----------
+    u_hat = x_hat_nat;
+    m = 1;
+    for stage = 1:n
+        for i = 1:2*m:N
+            a = u_hat(i:i+m-1);
+            b = u_hat(i+m:i+2*m-1);
+            u_hat(i:i+2*m-1) = [mod(a+b,2), b];
+        end
+        m = m*2;
+    end
+
+    %% ----------- Extract message bits -----------
+    msg_hat = u_hat(info_pos);
+end
+
+function x = sc_node(L)
+    N = length(L);
+
+    if N == 1
+        x = double(L < 0);
+        return;
+    end
+
+    N2 = N/2;
+    L1 = L(1:N2);
+    L2 = L(N2+1:end);
+
+    %% f function
+    f = @(a,b) (1-2*(a<0)).*(1-2*(b<0)).*min(abs(a),abs(b));
+    L_left = f(L1,L2);
+    x_left = sc_node(L_left);
+
+    %% g function
+    g = @(a,b,c) b + (1-2*c).*a;
+    L_right = g(L1,L2,x_left);
+    x_right = sc_node(L_right);
+
+    x = [mod(x_left + x_right, 2), x_right];
+end
