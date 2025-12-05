@@ -1,0 +1,61 @@
+clc; clear; close all;
+
+%% ===================== USER INPUT MESSAGE =====================
+% 🔹 TYPE YOUR MESSAGE HERE (0/1 sequence)
+msg = [1 0 1 1 0 1 0 1 0 1 1 1 0 0 1 0 0 0 1 0 1 0 1 1 1 0];
+K_msg = length(msg);
+
+% 🔹 Choose N >= K_msg and power of 2
+N = 32;   % Your project usually uses N = 32
+
+%% ===================== RELIABILITY SEQUENCE =====================
+% 5G-NR Polar reliability sequence (first 32 values used)
+Q_full = [ ...
+    0,1,2,4,8,3,5,16,10,12,6,9,7,14,20,24, ...
+    17,11,13,18,19,21,22,26,28,15,23,25,27,29,30,31] + 1;
+
+Q = Q_full(1:N);
+
+%% ===================== CHANNEL SETTINGS =====================
+EbNo_dB = 4;        % Set the SNR for testing
+EbNo    = 10^(EbNo_dB/10);
+Rate    = K_msg / N;
+
+sigma2 = 1/(2*Rate*EbNo);
+sigma  = sqrt(sigma2);
+
+fprintf('\n=== POLAR TEST (Manual Message) ===\n');
+fprintf('Message length K = %d, Block length N = %d\n', K_msg, N);
+fprintf('Eb/N0 = %.1f dB\n\n', EbNo_dB);
+
+%% ===================== ENCODING =====================
+x = polar_encode_butterfly_bitrev_no_builtin(msg, Q);
+
+fprintf("Original message bits:\n");
+disp(msg);
+
+fprintf("Encoded polar codeword x (bit-reversed order):\n");
+disp(x);
+
+%% ===================== CHANNEL =====================
+s = 1 - 2*x;                 % BPSK mapping
+r = s + sigma*randn(1,N);    % AWGN
+
+%% ===================== LLR CONVERSION =====================
+Lx = 2*r / sigma2;
+
+%% ===================== DECODING =====================
+[u_hat, msg_hat] = polar_sc_decode_x_then_u(Lx, Q, K_msg);
+
+fprintf("Decoded full u_hat (natural order):\n");
+disp(u_hat);
+
+fprintf("Decoded message bits:\n");
+disp(msg_hat);
+
+%% ===================== RESULT =====================
+if isequal(msg, msg_hat)
+    disp("✔ Decoding SUCCESS (message matches)");
+else
+    disp("✘ Decoding FAILURE (message does not match)");
+end
