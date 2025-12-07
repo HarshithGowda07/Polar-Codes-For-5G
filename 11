@@ -1,0 +1,69 @@
+clc; clear; close all;
+
+%% ===================== USER INPUT MESSAGE =====================
+% 🔹 TYPE YOUR MESSAGE HERE
+msg = [1 0 1 1 0 1 0 1 0 1 1 1 0 0 1 0 0 0 1 0 1 0 1 1 1 0];
+K_msg = length(msg);
+
+% 🔹 Choose N >= K_msg and power of 2
+N = 32;
+
+%% ===================== RELIABILITY SEQUENCE =====================
+Q_full = [ ...
+    0,1,2,4,8,3,5,16,10,12,6,9,7,14,20,24, ...
+    17,11,13,18,19,21,22,26,28,15,23,25,27,29,30,31] + 1;
+
+Q = Q_full(1:N);
+
+%% ===================== SIMULATION PARAMETERS =====================
+SNR_dB = -2 : 2 : 8;      % Range of SNRs
+numFrames = 2000;         % Repetitions per SNR
+
+BER = zeros(1, length(SNR_dB));
+
+fprintf("\n=== POLAR SC DECODING BER SIMULATION ===\n");
+fprintf("Message length K = %d, Block length N = %d\n\n", K_msg, N);
+
+%% ===================== SNR LOOP =====================
+for si = 1:length(SNR_dB)
+    
+    EbNo_dB = SNR_dB(si);
+    EbNo    = 10^(EbNo_dB/10);
+    Rate    = K_msg/N;
+    sigma2  = 1/(2*Rate*EbNo);
+    sigma   = sqrt(sigma2);
+
+    total_bit_err = 0;
+
+    for f = 1:numFrames
+
+        %% ---------- ENCODE ----------
+        x = polar_encode_butterfly_bitrev_no_builtin(msg, Q);
+        s = 1 - 2*x;   % BPSK mapping
+
+        %% ---------- AWGN ----------
+        r = s + sigma * randn(1, N);
+
+        %% ---------- LLR ----------
+        Lx = 2*r / sigma2;
+
+        %% ---------- DECODE ----------
+        [~, msg_hat] = polar_sc_decode_x_then_u(Lx, Q, K_msg);
+
+        %% ---------- COUNT ERRORS ----------
+        total_bit_err = total_bit_err + sum(msg ~= msg_hat);
+
+    end
+
+    BER(si) = total_bit_err / (numFrames * K_msg);
+
+    fprintf("SNR = %d dB | BER = %.4g\n", EbNo_dB, BER(si));
+end
+
+%% ===================== PLOT BER =====================
+figure;
+semilogy(SNR_dB, BER, '-o', 'LineWidth', 2);
+grid on;
+xlabel("Eb/N0 (dB)");
+ylabel("Bit Error Rate (BER)");
+title("Polar Code (SC Decoding) — BER vs SNR");
