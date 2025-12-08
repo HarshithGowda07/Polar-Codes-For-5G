@@ -1,0 +1,19 @@
+function crc = crc6(msg_bits)
+% CRC-6 (polynomial x^6 + x + 1) example (you can change polynomial if desired)
+% returns 1x6 bit vector MSB-first
+poly = bin2dec('1000011'); % example poly 0x43 (7-bit representation)
+reg = 0;
+for i = 1:length(msg_bits)
+    bit = msg_bits(i);
+    msb = bitxor(bit, bitget(reg,6));
+    reg = bitshift(reg,1);
+    if msb
+        reg = bitxor(reg, poly);
+    end
+    reg = bitand(reg, 2^6-1);
+end
+crc = zeros(1,6);
+for i=1:6
+    crc(i) = bitget(reg, 7-i);
+end
+end
