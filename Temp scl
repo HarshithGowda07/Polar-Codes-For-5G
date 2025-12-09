@@ -1,0 +1,24 @@
+function [u_hat, msg_hat] = polar_scl_decoder(Lx, K_total, L)
+% ==============================================================
+%   SCL DECODER (NO CRC)
+%   Lx      = received LLRs for x (bit-reversed order)
+%   K_total = number of information bits
+%   L       = list size
+% ==============================================================
+
+N = length(Lx);
+n = log2(N);
+
+%% ---------- Reliability sequence (write Q here) ----------
+Q = 1:N;   % <-- You choose your Q here
+
+%% ---------- Undo bit reversal ----------
+idx = zeros(1,N);
+for k = 0:N-1
+    rev = 0;
+    for b = 1:n
+        rev = rev*2 + bitget(k,b);
+    end
+    idx(k+1) = rev + 1;
+end
+L_nat = Lx(idx);
