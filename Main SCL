@@ -1,0 +1,184 @@
+function [u_hat, msg_hat] = polar_scl_decoder(Lx, Q, K_total, L)
+% ==============================================================
+%   SCL DECODER (NO CRC)
+%   Lx      = received LLRs for x (bit-reversed order)
+%   Q       = reliability sequence (1..N)
+%   K_total = number of information bits
+%   L       = list size
+%
+%   Outputs:
+%   u_hat   = full decoded u (natural order)
+%   msg_hat = extracted info bits
+% ==============================================================
+
+N = length(Lx);
+n = log2(N);
+
+%% ---------- Undo bit reversal (same as encoder but inverse direction) ----------
+idx = zeros(1,N);
+for k = 0:N-1
+    rev = 0;
+    for b = 1:n
+        rev = rev*2 + bitget(k,b);
+    end
+    idx(k+1) = rev + 1;
+end
+L_nat = Lx(idx);   % Natural-order LLRs
+
+%% ---------- Info & Frozen positions ----------
+info_pos = Q(N-K_total+1:end);
+frozen_pos = Q(1:N-K_total);
+
+frozen_mask = false(1, N);
+frozen_mask(frozen_pos) = true;
+
+%% ---------- Initialize list paths ----------
+paths_u = zeros(L, N);        % store bit decisions
+path_metric = inf(1, L);      % path metrics
+alpha = zeros(n+1, N, L);     % LLR trees
+beta  = zeros(n+1, N, L);     % partial sums (for g-function)
+
+active = false(1, L);
+active(1) = true;
+path_metric(1) = 0;
+alpha(1,:,1) = L_nat;         % root LLRs for path 1
+
+%% ---------- f and g ----------
+f = @(a,b) sign(a).*sign(b).*min(abs(a),abs(b));
+g = @(a,b,u) b + ((-1).^u).*a;
+
+%% ---------- Main SCL Loop ----------
+for bit = 1:N
+
+    cand_list = [];
+    cand_pm = [];
+    cand_parent = [];
+    cand_val = [];
+
+    for p = 1:L
+        if ~active(p)
+            continue;
+        end
+
+        %% --- Compute LLR for bit (descend tree) ---
+        Li = compute_llr(alpha(:,:,p), beta(:,:,p), bit, N, n, f, g);
+
+        %% --- Allowed bit hypotheses ---
+        if frozen_mask(bit)
+            possible_bits = 0;
+        else
+            possible_bits = [0 1];
+        end
+
+        for b = possible_bits
+            a = (1-2*b)*Li;
+            if a > 50
+                inc = 0;
+            elseif a < -50
+                inc = -a;
+            else
+                inc = log1p(exp(-a));
+            end
+
+            new_pm = path_metric(p) + inc;
+
+            cand_list = [cand_list; p];       %#ok<AGROW>
+            cand_pm   = [cand_pm; new_pm];    %#ok<AGROW>
+            cand_val  = [cand_val; b];        %#ok<AGROW>
+        end
+    end
+
+    %% --- Keep best L hypotheses ---
+    [~, order] = sort(cand_pm, 'ascend');
+    order = order(1:min(L, length(order)));
+
+    new_active = false(1, L);
+    new_paths_u = zeros(L, N);
+    new_metric = inf(1, L);
+    new_alpha  = zeros(n+1, N, L);
+    new_beta   = zeros(n+1, N, L);
+
+    next_slot = 1;
+
+    for k = 1:length(order)
+
+        idx_cand = order(k);
+        parent = cand_list(idx_cand);
+        b = cand_val(idx_cand);
+
+        pnew = next_slot;
+        next_slot = next_slot + 1;
+
+        new_active(pnew) = true;
+        new_metric(pnew) = cand_pm(idx_cand);
+
+        new_paths_u(pnew,:) = paths_u(parent,:);
+        new_paths_u(pnew,bit) = b;
+
+        new_alpha(:,:,pnew) = alpha(:,:,parent);
+        new_beta(:,:,pnew)  = beta(:,:,parent);
+
+        [new_alpha(:,:,pnew), new_beta(:,:,pnew)] = ...
+            update_tree(new_alpha(:,:,pnew), new_beta(:,:,pnew), bit, b, N, n);
+    end
+
+    active = new_active;
+    paths_u = new_paths_u;
+    path_metric = new_metric;
+    alpha = new_alpha;
+    beta = new_beta;
+end
+
+%% ---------- Select best path (no CRC, so metric only) ----------
+active_idx = find(active);
+[~, idx_min] = min(path_metric(active_idx));
+best = active_idx(idx_min);
+
+u_hat = paths_u(best,:);
+msg_hat = u_hat(info_pos);
+
+end
+
+%% ==========================================================
+%% Helper: compute bit LLR via SC recursion
+function Li = compute_llr(alpha, beta, bit, N, n, f, g)
+
+    L = alpha(1,:);
+    for lev = 2:n+1
+        block = 2^(n-(lev-1));
+        half = block/2;
+
+        base = floor((bit-1)/block)*block + 1;
+
+        if mod(bit-1, block) < half
+            L = f(L(base:base+half-1), L(base+half:base+block-1));
+        else
+            u_left = beta(lev, base:base+half-1);
+            L = g(L(base:base+half-1), L(base+half:base+block-1), u_left);
+        end
+    end
+
+    Li = L(1);
+end
+
+%% ==========================================================
+%% Helper: update beta (partial sums) after bit decision
+function [alpha, beta] = update_tree(alpha, beta, bit, b, N, n)
+
+    beta(n+1,bit) = b;
+
+    for lev = n:-1:1
+        block = 2^(n-(lev-1));
+        half = block/2;
+        base = floor((bit-1)/block)*block + 1;
+
+        left = base : base+half-1;
+        right = base+half : base+block-1;
+
+        if mod(bit-1, block) < half
+            beta(lev, right) = mod(beta(lev, right) + beta(lev+1,left), 2);
+        else
+            beta(lev, right) = beta(lev+1,right);
+        end
+    end
+end
