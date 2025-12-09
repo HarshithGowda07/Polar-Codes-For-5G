@@ -1,0 +1,97 @@
+clc; clear; close all;
+
+%% ===================== USER OPTIONS =====================
+% Type your message (payload bits)
+msg = [1 0 1 1 0 1 0 1 1 0 1 0 1 1];      % <-- EDIT THIS
+
+random_payload = false;   % set true to randomize message each frame
+K_msg = length(msg);
+
+% SCL list size:
+L = 8;   % (L = 4, 8, 16 recommended for no CRC)
+
+% SNR range:
+SNRdB_list = -2:2:8;
+
+% Frames per SNR:
+numFrames = 500;      % Increase later (1000–5000) for smoother curves
+
+%% ===================== BLOCKLENGTH =====================
+K_total = K_msg;                 % No CRC in SCL (plain SCL)
+N = 2^nextpow2(K_total);         % Smallest power of 2 >= K
+n = log2(N);
+
+fprintf("K = %d, N = %d, L = %d\n", K_msg, N, L);
+
+%% ===================== RELIABILITY SEQUENCE =====================
+Q = 1:N;        % For testing; ideally replace with 5G sequence
+
+info_pos   = Q(N-K_total+1:end);
+frozen_pos = Q(1:N-K_total);
+
+%% ===================== BER ARRAYS =====================
+BER_SC = zeros(size(SNRdB_list));
+BER_SCL = zeros(size(SNRdB_list));
+
+%% ===================== MAIN SNR LOOP =====================
+for si = 1:length(SNRdB_list)
+
+    EbNo_dB = SNRdB_list(si);
+    EbNo = 10^(EbNo_dB/10);
+    Rate = K_total/N;
+
+    sigma2 = 1/(2*Rate*EbNo);
+    sigma = sqrt(sigma2);
+
+    errors_sc = 0;
+    errors_scl = 0;
+    total_bits = 0;
+
+    for f = 1:numFrames
+
+        %% ----- PAYLOAD SELECTION -----
+        if random_payload
+            payload = randi([0 1], 1, K_msg);
+        else
+            payload = msg;
+        end
+
+        %% ----- ENCODING -----
+        x = polar_encoder(payload, Q);   % your existing encoder
+
+        %% ----- CHANNEL -----
+        s = 1 - 2*x;
+        r = s + sigma * randn(1, N);
+        LLR = 2*r / sigma2;
+
+        %% ----- SC DECODING -----
+        [~, msg_sc] = polar_sc_decode_x_then_u(LLR, Q, K_total);
+        msg_sc = msg_sc(1:K_msg);
+
+        %% ----- SCL DECODING -----
+        [~, msg_scl] = polar_scl_decoder(LLR, Q, K_total, L);
+        msg_scl = msg_scl(1:K_msg);
+
+        %% ----- COUNT ERRORS -----
+        errors_sc  = errors_sc  + sum(msg_sc  ~= payload);
+        errors_scl = errors_scl + sum(msg_scl ~= payload);
+        total_bits = total_bits + K_msg;
+    end
+
+    BER_SC(si)  = errors_sc  / total_bits;
+    BER_SCL(si) = errors_scl / total_bits;
+
+    fprintf("SNR = %2d dB | SC  BER = %.4g | SCL(L=%d) BER = %.4g\n", ...
+        EbNo_dB, BER_SC(si), L, BER_SCL(si));
+end
+
+%% ===================== PLOT =====================
+figure;
+semilogy(SNRdB_list, BER_SC, '-o', 'LineWidth', 2); hold on;
+semilogy(SNRdB_list, BER_SCL, '-s', 'LineWidth', 2);
+
+grid on;
+xlabel('Eb/N0 (dB)');
+ylabel('Bit Error Rate (BER)');
+legend('SC', sprintf('SCL (L=%d)', L));
+title(sprintf('SC vs SCL (No CRC) | K=%d, N=%d', K_msg, N));
