@@ -3,6 +3,7 @@ clc; clear; close all;
 % ---------------- USER MESSAGE ----------------
 msg = [1 0 1 1 0 1 1 0 1 0 1 1 1 0 0 1 0 0 0 1 0 1 0 1 1 1 0];
 K = length(msg);
+L = 8;
 
 fprintf("Testing Polar SC Encoder/Decoder\n");
 fprintf("Message length K = %d\n", K);
@@ -22,18 +23,25 @@ s = 1 - 2*x;
 LLR_noiseless = 1e6 * s;    % extremely confident LLRs
 
 [u_sc1, msg_sc1] = polar_sc_decoder(LLR_noiseless, K);
+[u_scl1, msg_scl1] = polar_scl_decoder(LLR_noiseless, K, L);
 
 disp("Original message: ");
 disp(msg);
 disp("Decoded (Noiseless SC): ");
 disp(msg_sc1);
+disp("Decoded (Noiseless SCL): ");
+disp(msg_scl1);
 
 if isequal(msg, msg_sc1)
     disp("✔ SUCCESS (Noiseless): SC decoded exactly.");
 else
-    disp("❌ ERROR: mismatch in noiseless decoding!");
+    disp("❌ ERROR: mismatch in SC noiseless decoding!");
 end
-
+if isequal(msg, msg_scl1)
+    disp("✔ SUCCESS (Noiseless): SCL decoded exactly.");
+else
+    disp("❌ ERROR: mismatch in SCL noiseless decoding!");
+end
 
 %% =====================================================
 %                 2) NOISY TEST
@@ -50,11 +58,16 @@ r = s + sigma * randn(1, N);
 LLR_noisy = 2*r/(sigma^2);
 
 [u_sc2, msg_sc2] = polar_sc_decoder(LLR_noisy, K);
+[u_scl2, msg_scl2] = polar_scl_decoder(LLR_noiseless, K, L);
 
 disp("Decoded (Noisy SC): ");
 disp(msg_sc2);
+disp("Decoded (Noisy SCL): ");
+disp(msg_scl2);
 
 % Count errors
-bit_errors = sum(msg_sc2 ~= msg);
-fprintf("Noisy-case bit errors = %d out of %d bits\n", bit_errors, K);
+bit_errors_sc = sum(msg_sc2 ~= msg);
+fprintf("SC Noisy-case bit errors = %d out of %d bits\n", bit_errors_sc, K);
+bit_errors_scl = sum(msg_scl2 ~= msg);
+fprintf("SCL Noisy-case bit errors = %d out of %d bits\n", bit_errors_scl, K);
 
