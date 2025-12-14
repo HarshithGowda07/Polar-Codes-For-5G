@@ -1,61 +1,60 @@
 clc; clear; close all;
 
-%% ===================== USER INPUT MESSAGE =====================
-% 🔹 TYPE YOUR MESSAGE HERE (0/1 sequence)
-msg = [1 0 1 1 0 1 0 1 0 1 1 1 0 0 1 0 0 0 1 0 1 0 1 1 1 0];
-K_msg = length(msg);
+% ---------------- USER MESSAGE ----------------
+msg = [1 0 1 1 0 1 1 0 1 0 1 1 1 0 0 1 0 0 0 1 0 1 0 1 1 1 0];
+K = length(msg);
 
-% 🔹 Choose N >= K_msg and power of 2
-N = 32;   % Your project usually uses N = 32
+fprintf("Testing Polar SC Encoder/Decoder\n");
+fprintf("Message length K = %d\n", K);
 
-%% ===================== RELIABILITY SEQUENCE =====================
-% 5G-NR Polar reliability sequence (first 32 values used)
-Q_full = [ ...
-    0,1,2,4,8,3,5,16,10,12,6,9,7,14,20,24, ...
-    17,11,13,18,19,21,22,26,28,15,23,25,27,29,30,31] + 1;
+% ---------------- ENCODING --------------------
+x = polar_encoder(msg);
+N = length(x);
 
-Q = Q_full(1:N);
+fprintf("Block length N = %d\n", N);
 
-%% ===================== CHANNEL SETTINGS =====================
-EbNo_dB = 4;        % Set the SNR for testing
-EbNo    = 10^(EbNo_dB/10);
-Rate    = K_msg / N;
+% ---------------- BPSK ------------------------
+s = 1 - 2*x;
 
-sigma2 = 1/(2*Rate*EbNo);
-sigma  = sqrt(sigma2);
+%% =====================================================
+%                 1) NOISELESS TEST
+% ======================================================
+LLR_noiseless = 1e6 * s;    % extremely confident LLRs
 
-fprintf('\n=== POLAR TEST (Manual Message) ===\n');
-fprintf('Message length K = %d, Block length N = %d\n', K_msg, N);
-fprintf('Eb/N0 = %.1f dB\n\n', EbNo_dB);
+[u_sc1, msg_sc1] = polar_sc_decoder(LLR_noiseless, K);
 
-%% ===================== ENCODING =====================
-x = polar_encode_butterfly_bitrev_no_builtin(msg, Q);
-
-fprintf("Original message bits:\n");
+disp("Original message: ");
 disp(msg);
+disp("Decoded (Noiseless SC): ");
+disp(msg_sc1);
 
-fprintf("Encoded polar codeword x (bit-reversed order):\n");
-disp(x);
-
-%% ===================== CHANNEL =====================
-s = 1 - 2*x;                 % BPSK mapping
-r = s + sigma*randn(1,N);    % AWGN
-
-%% ===================== LLR CONVERSION =====================
-Lx = 2*r / sigma2;
-
-%% ===================== DECODING =====================
-[u_hat, msg_hat] = polar_sc_decode_x_then_u(Lx, Q, K_msg);
-
-fprintf("Decoded full u_hat (natural order):\n");
-disp(u_hat);
-
-fprintf("Decoded message bits:\n");
-disp(msg_hat);
-
-%% ===================== RESULT =====================
-if isequal(msg, msg_hat)
-    disp("✔ Decoding SUCCESS (message matches)");
+if isequal(msg, msg_sc1)
+    disp("✔ SUCCESS (Noiseless): SC decoded exactly.");
 else
-    disp("✘ Decoding FAILURE (message does not match)");
+    disp("❌ ERROR: mismatch in noiseless decoding!");
 end
+
+
+%% =====================================================
+%                 2) NOISY TEST
+% =====================================================
+EbNodB = 4;                    % choose SNR
+Rate   = K / N;
+EbNo   = 10^(EbNodB/10);
+sigma  = sqrt(1/(2*Rate*EbNo));
+
+% pass through AWGN
+r = s + sigma * randn(1, N);
+
+% compute LLR
+LLR_noisy = 2*r/(sigma^2);
+
+[u_sc2, msg_sc2] = polar_sc_decoder(LLR_noisy, K);
+
+disp("Decoded (Noisy SC): ");
+disp(msg_sc2);
+
+% Count errors
+bit_errors = sum(msg_sc2 ~= msg);
+fprintf("Noisy-case bit errors = %d out of %d bits\n", bit_errors, K);
+
