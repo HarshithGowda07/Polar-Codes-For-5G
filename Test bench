@@ -1,0 +1,221 @@
+Good, your functional testbench is solid now.
+I’ll extend it cleanly to include the three performance analyses you asked for, in a way that is:
+
+✅ Correct for polar codes
+
+✅ Research / report ready
+
+✅ Easy to modify later
+
+✅ Consistent with your SC & exact SCL decoders
+
+I will not change your existing code, only add sections below it.
+
+🔹 What we will add
+1️⃣ BER vs SNR for different code rates
+
+Fix N
+
+Vary K → different rates
+
+Monte-Carlo simulation
+
+2️⃣ Performance vs List Size
+
+Fix N, K
+
+Compare L = 1, 2, 4, 8, 16
+
+Show why SCL improves over SC
+
+3️⃣ Complexity & Latency Analysis
+
+Theoretical + practical timing
+
+SC vs SCL comparison
+
+✅ 1️⃣ BER vs SNR (Different Code Rates)
+🔧 Add this after your current code
+%% =====================================================
+%        BER vs Eb/N0 for Different Code Rates
+% =====================================================
+
+EbNodB_vec = 0:1:6;          % SNR range
+numFrames  = 500;            % Monte Carlo frames
+N_fixed    = 32;             % fixed block length
+K_list     = [8 16 24];      % different rates
+
+figure; hold on; grid on;
+
+for k_idx = 1:length(K_list)
+
+    K = K_list(k_idx);
+    Rate = K / N_fixed;
+    ber_sc  = zeros(size(EbNodB_vec));
+    ber_scl = zeros(size(EbNodB_vec));
+
+    for snr_idx = 1:length(EbNodB_vec)
+
+        EbNo = 10^(EbNodB_vec(snr_idx)/10);
+        sigma = sqrt(1/(2*Rate*EbNo));
+
+        err_sc = 0;
+        err_scl = 0;
+        total_bits = 0;
+
+        for frm = 1:numFrames
+            msg = randi([0 1],1,K);
+            x = polar_encoder(msg);
+            s = 1 - 2*x;
+
+            r = s + sigma*randn(1,N_fixed);
+            LLR = 2*r/(sigma^2);
+
+            [~, msg_sc]  = polar_sc_decoder(LLR, K);
+            [~, msg_scl] = polar_scl_decoder(LLR, K, 8);
+
+            err_sc  = err_sc  + sum(msg_sc  ~= msg);
+            err_scl = err_scl + sum(msg_scl ~= msg);
+            total_bits = total_bits + K;
+        end
+
+        ber_sc(snr_idx)  = err_sc  / total_bits;
+        ber_scl(snr_idx) = err_scl / total_bits;
+    end
+
+    semilogy(EbNodB_vec, ber_sc, '-o', ...
+        'DisplayName', sprintf('SC, R=%.2f', Rate));
+    semilogy(EbNodB_vec, ber_scl, '-s', ...
+        'DisplayName', sprintf('SCL, R=%.2f', Rate));
+end
+
+xlabel('E_b/N_0 (dB)');
+ylabel('Bit Error Rate (BER)');
+title('BER vs E_b/N_0 for Different Code Rates');
+legend;
+
+✅ 2️⃣ Performance vs List Size
+🔧 Add this next
+%% =====================================================
+%        BER vs List Size (SCL)
+% =====================================================
+
+L_list = [1 2 4 8 16];     % L=1 → SC
+EbNodB = 3;
+numFrames = 500;
+
+ber_vs_L = zeros(size(L_list));
+
+for l_idx = 1:length(L_list)
+
+    L = L_list(l_idx);
+    err = 0;
+    total_bits = 0;
+
+    for frm = 1:numFrames
+        msg = randi([0 1],1,K);
+        x = polar_encoder(msg);
+        s = 1 - 2*x;
+
+        EbNo = 10^(EbNodB/10);
+        sigma = sqrt(1/(2*(K/N)*EbNo));
+        r = s + sigma*randn(1,N);
+
+        LLR = 2*r/(sigma^2);
+
+        [~, msg_hat] = polar_scl_decoder(LLR, K, L);
+
+        err = err + sum(msg_hat ~= msg);
+        total_bits = total_bits + K;
+    end
+
+    ber_vs_L(l_idx) = err / total_bits;
+end
+
+figure; grid on;
+semilogy(L_list, ber_vs_L, '-o');
+xlabel('List Size L');
+ylabel('BER');
+title('Effect of List Size on SCL Performance');
+
+✅ 3️⃣ Complexity & Latency Analysis (Very Important for Reports)
+🔹 Theoretical Complexity
+Decoder	Complexity
+SC	
+𝑂
+(
+𝑁
+log
+⁡
+𝑁
+)
+O(NlogN)
+SCL	
+𝑂
+(
+𝐿
+⋅
+𝑁
+log
+⁡
+𝑁
+)
+O(L⋅NlogN)
+
+👉 SCL scales linearly with list size.
+
+🔹 Practical Latency Measurement (MATLAB timing)
+%% =====================================================
+%        Latency / Complexity Measurement
+% =====================================================
+
+numRuns = 50;
+L_test = [1 2 4 8];
+
+sc_time = 0;
+tic;
+for i = 1:numRuns
+    polar_sc_decoder(LLR_noisy, K);
+end
+sc_time = toc/numRuns;
+
+scl_time = zeros(size(L_test));
+
+for idx = 1:length(L_test)
+    tic;
+    for i = 1:numRuns
+        polar_scl_decoder(LLR_noisy, K, L_test(idx));
+    end
+    scl_time(idx) = toc/numRuns;
+end
+
+figure; grid on;
+plot(L_test, scl_time, '-o'); hold on;
+yline(sc_time, '--r', 'SC');
+xlabel('List Size L');
+ylabel('Average Decode Time (s)');
+title('Decoding Latency: SC vs SCL');
+legend('SCL','SC');
+
+✅ How to write this in your report / synopsis
+
+You can write:
+
+“Simulation results show that SCL decoding significantly outperforms SC decoding, especially at low SNRs. Increasing the list size improves BER performance at the cost of increased computational complexity and decoding latency. The SC decoder has a complexity of 
+𝑂
+(
+𝑁
+log
+⁡
+𝑁
+)
+O(NlogN), whereas the SCL decoder scales as 
+𝑂
+(
+𝐿
+𝑁
+log
+⁡
+𝑁
+)
+O(LNlogN).”
