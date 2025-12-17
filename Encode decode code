@@ -1,0 +1,144 @@
+function x = polar_encoder(info_bits)
+
+K = length(info_bits);
+
+% Choose N
+if bitand(K, K-1) == 0
+    N = 2*K;
+else
+    N = 2^nextpow2(K);
+end
+n = log2(N);
+
+% Load reliability sequence
+Q1024 = polar_reliability_1024();
+Q = Q1024(Q1024<=N);
+
+
+% Construct u
+u = zeros(1, N);
+info_pos   = Q(N-K+1: end);
+u(info_pos) = info_bits;
+
+% ---------- 1) BUTTERFLY (Arikan transform) ----------
+x_nat = u;
+
+m = 1;
+for stage = 1:n
+    for i = 1:2*m:N
+        a = x_nat(i:i+m-1);
+        b = x_nat(i+m:i+2*m-1);
+        x_nat(i:i+2*m-1) = [mod(a+b,2), b];
+    end
+    m = m * 2;
+end
+
+% ---------- 2) BIT-REVERSAL ----------
+idx = zeros(1,N);
+for k = 0:N-1
+    rev = 0;
+    for b = 1:n
+        rev = rev * 2 + bitget(k, b);
+    end
+    idx(k+1) = rev + 1;
+end
+
+x = x_nat(idx);
+
+end
+
+--------------------------------------------------------------------------------------------------
+
+function [u_hat, msg_hat] = polar_sc_decoder(Lx, K)
+% ============================================================
+%   SUCCESSIVE CANCELLATION DECODER (SC)
+%   Works with encoder that uses:
+%       - 5G NR reliability Q1024
+%       - bit-reversal output
+%       - butterfly transform (Arikan)
+% ============================================================
+
+    N = length(Lx);
+    n = log2(N);
+
+    % ---------- Load 5G NR reliability ----------
+    Q1024 = polar_reliability_1024();
+    Q = Q1024(Q1024<=N);
+
+    frozen_pos = Q(1:N-K);
+    info_pos   = Q(N-K+1:N);
+
+    frozen_mask = false(1,N);
+    frozen_mask(frozen_pos) = true;
+
+    % ---------- Undo bit reversal ----------
+    idx = zeros(1,N);
+    for k = 0:N-1
+        rev = 0;
+        for b = 1:n
+            rev = rev*2 + bitget(k,b);
+        end
+        idx(k+1) = rev + 1;
+    end
+
+    L_nat = Lx(idx);
+
+    % ---------- SC decode x (natural order) ----------
+    x_hat_nat = sc_recursive(L_nat, 1, frozen_mask);
+
+    % ---------- Convert x → u (inverse butterfly) ----------
+    u_hat = x_hat_nat;
+    m = 1;
+    for stage = 1:n
+        for i = 1:2*m:N
+            a = u_hat(i:i+m-1);
+            b = u_hat(i+m:i+2*m-1);
+            u_hat(i:i+2*m-1) = [mod(a+b,2), b];
+        end
+        m = m*2;
+    end
+
+    msg_hat = u_hat(info_pos);
+end
+
+
+% ============================================================
+% RECURSIVE SC NODE
+function x_sub = sc_recursive(L_sub, base_idx, frozen_mask)
+% L_sub: vector of LLRs for the subtree (natural x positions)
+% base_idx: global starting index for this subtree's u positions
+% frozen_mask: boolean vector 1xN indicating frozen u positions
+
+M = length(L_sub);
+if M == 1
+    % global index for this leaf
+    if frozen_mask(base_idx)
+        x_sub = 0;
+    else
+        x_sub = double(L_sub < 0);   % hard decision on LLR
+    end
+    return;
+end
+
+half = M/2;
+L1 = L_sub(1:half);
+L2 = L_sub(half+1:end);
+
+% f and g (min-sum style)
+f = @(a,b) sign(a).*sign(b).*min(abs(a),abs(b));
+g = @(a,b,u) b + (1-2*u).*a; % u is vector for left child
+
+% left child
+L_left = f(L1, L2);
+x_left = sc_recursive(L_left, base_idx, frozen_mask);
+
+% right child
+L_right = g(L1, L2, x_left);
+x_right = sc_recursive(L_right, base_idx + half, frozen_mask);
+
+% combine
+x_sub = [ mod(x_left + x_right, 2), x_right ];
+end
+
+------------------------------------------------------------
+the above 2 codes are my polar encoder and polar sc decoder which are working fine now give me proper correctly working scl decoder (without crc just scl decoding)
